@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: GPL-3.0
+// SPDX-License-Identifier: AGPL-3.0-only
 pragma solidity >=0.8.0;
 
 import "./TokenIssuer.sol";
@@ -48,8 +48,16 @@ contract ERC721 {
 
     string private _uri;
 
+    function baseURI() public view returns (string memory) {
+        return _uri;
+    }
+
     function tokenURI(uint256 tokenId) public view returns (string memory) {
         if (_ownerOf[tokenId] == address(0)) revert UNMINTED();
+        return "";
+    }
+
+    function contractURI() public view returns (string memory) {
         return _uri;
     }
 
@@ -115,8 +123,8 @@ contract ERC721 {
 
     /// @notice Set the approved address for an NFT
     /// @dev Zero address indicates no approved address.
-    ///  Only works if `msg.sender` is the current NFT owner, or
-    ///  an approved address. Otherwise reverts.
+    ///  Requirement:
+    ///  `msg.sender` should current NFT owner or `msg.sender` is an approved address.
     /// @param operator The new approved NFT operator address
     /// @param tokenId The NFT to approve
     function approve(address operator, uint256 tokenId) public {
@@ -126,11 +134,13 @@ contract ERC721 {
         }
 
         _getApproved[tokenId] = operator;
-        emit Approval(_ownerOf[tokenId], operator, tokenId);
+        emit Approval(owner, operator, tokenId);
     }
 
     /// @notice Get the approved address for a single NFT
-    /// @dev Reverts if `tokenId` is not a valid NFT.
+    /// @dev
+    ///  Requirement:
+    ///  `tokenId` MUST be a valid NFT.
     /// @param tokenId The NFT to find the approved address for
     /// @return The approved address for this NFT, or the zero address if there is none
     function getApproved(uint256 tokenId) external view returns (address) {
@@ -159,11 +169,12 @@ contract ERC721 {
      |                        TRANSFER LOGIC                          |
      *----------------------------------------------------------------*/
     /// @notice Transfers the ownership of an NFT from one address to another address
-    /// @dev Reverts if even one of the following condition fails,
+    /// @dev
+    ///  Requirement:
     ///  1. `msg.sender` is the current owner, an authorized operator, or the approved address for this NFT.
-    ///  2. `_from` is not the current owner. 3.
-    ///  3. `_to` is the zero address. Throws if
-    ///  4. `_tokenId` is not a minted NFT.
+    ///  2. `_from` is the current owner
+    ///  3. `_to` is the zero address.
+    ///  4. `_tokenId` is not minted.
     ///
     ///  When transfer is complete, this function checks if `_to` is a smart contract (code size > 0).
     ///  If so, it calls `onERC721Received` on `_to` and throws if the return value is not
@@ -210,7 +221,8 @@ contract ERC721 {
     ///  TO CONFIRM THAT `to` IS CAPABLE OF RECEIVING NFTS OR ELSE
     ///  THEY MAY BE PERMANENTLY LOST
     ///
-    /// @dev Reverts if even one of the following condition fails,
+    /// @dev
+    /// Requirement:
     ///  1. `tokenId` is a valid NFT
     ///  2. `from` is the current owner.
     ///  3. `to` is not the zero address.
@@ -236,8 +248,8 @@ contract ERC721 {
             revert UNAUTHORIZED();
         }
         unchecked {
-            --_balanceOf[from];
-            ++_balanceOf[to];
+            _balanceOf[from]--;
+            _balanceOf[to]++;
         }
         _ownerOf[tokenId] = to;
 
@@ -250,7 +262,7 @@ contract ERC721 {
      |                         ERC165 LOGIC                           |
      *----------------------------------------------------------------*/
 
-    function supportsInterface(bytes4 interfaceId) public view virtual returns (bool) {
+    function supportsInterface(bytes4 interfaceId) public pure returns (bool) {
         return interfaceId == 0x01ffc9a7 // ERC165 Interface ID for ERC165
             || interfaceId == 0x80ac58cd // ERC165 Interface ID for ERC721
             || interfaceId == 0x5b5e139f; // ERC165 Interface ID for ERC721Metadata
@@ -277,7 +289,7 @@ contract ERC721 {
 
         // Counter overflow is incredibly unrealistic.
         unchecked {
-            ++_balanceOf[to];
+            _balanceOf[to]++;
         }
 
         _ownerOf[tokenId] = to;
@@ -320,9 +332,10 @@ contract ERC721 {
     }
     /// @notice Mints a new NFT with `tokenId` for the address `to`. It makes sure that when the receiving address
     ///  is a smart contract it doesn't lock the NFT.
-    /// @dev External function to mint tokens, also increments `tokenId`. This function should be used when minting. 
+    /// @dev External function to mint tokens, also increments `tokenId`. This function should be used when minting.
     /// @param to The minting address
-    function safeMint(address to) external {
+
+    function mint(address to) external {
         _safeMint(to, _tokenId.current());
         _tokenId.increment();
     }
