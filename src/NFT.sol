@@ -15,8 +15,8 @@ contract ERC721 {
      |                             EVENTS                             |
      *----------------------------------------------------------------*/
 
-    event Transfer(address indexed from, address indexed to, uint256 indexed id);
-    event Approval(address indexed owner, address indexed spender, uint256 indexed id);
+    event Transfer(address indexed from, address indexed to, uint256 indexed tokenId);
+    event Approval(address indexed owner, address indexed spender, uint256 indexed tokenId);
     event ApprovalForAll(address indexed owner, address indexed operator, bool approved);
 
     /*----------------------------------------------------------------*
@@ -159,12 +159,14 @@ contract ERC721 {
      |                        TRANSFER LOGIC                          |
      *----------------------------------------------------------------*/
     /// @notice Transfers the ownership of an NFT from one address to another address
-    /// @dev Reverts unless `msg.sender` is the current owner, an authorized
-    ///  operator, or the approved address for this NFT. Throws if `_from` is
-    ///  not the current owner. Throws if `_to` is the zero address. Throws if
-    ///  `_tokenId` is not a valid NFT. When transfer is complete, this function
-    ///  checks if `_to` is a smart contract (code size > 0). If so, it calls
-    ///  `onERC721Received` on `_to` and throws if the return value is not
+    /// @dev Reverts if even one of the following condition fails,
+    ///  1. `msg.sender` is the current owner, an authorized operator, or the approved address for this NFT.
+    ///  2. `_from` is not the current owner. 3.
+    ///  3. `_to` is the zero address. Throws if
+    ///  4. `_tokenId` is not a minted NFT.
+    ///
+    ///  When transfer is complete, this function checks if `_to` is a smart contract (code size > 0).
+    ///  If so, it calls `onERC721Received` on `_to` and throws if the return value is not
     ///  `bytes4(keccak256("onERC721Received(address,address,uint256,bytes)"))`.
     /// @param from The current owner of the NFT
     /// @param to The new owner
@@ -258,12 +260,18 @@ contract ERC721 {
      |                          MINT LOGIC                            |
      *----------------------------------------------------------------*/
 
-    function mint(address to, uint256 id) internal virtual {
+    /// @dev Reverts if even one of the following condition fails,
+    ///  1. `to` address should not be zero address.
+    ///  2. `tokenId` should not be minted.
+    ///
+    /// @param to The minting address
+    /// @param tokenId The NFT to transfer
+    function _mint(address to, uint256 tokenId) internal {
         if (to == address(0)) {
             revert ZERO_ADDRESS();
         }
 
-        if (_ownerOf[id] != address(0)) {
+        if (_ownerOf[tokenId] != address(0)) {
             revert ALREADY_MINTED();
         }
 
@@ -272,14 +280,18 @@ contract ERC721 {
             ++_balanceOf[to];
         }
 
-        _ownerOf[id] = to;
-
-        emit Transfer(address(0), to, id);
+        _ownerOf[tokenId] = to;
+        emit Transfer(address(0), to, tokenId);
     }
 
-    function safeMint(address to, uint256 tokenId) internal virtual {
-        mint(to, tokenId);
-
+    /// @dev Calls the internal `_mint` function.
+    ///  When transfer is complete, this function checks if `_to` is a smart contract (code size > 0).
+    ///  If so, it calls `onERC721Received` on `_to` and throws if the return value is not
+    ///  `bytes4(keccak256("onERC721Received(address,address,uint256,bytes)"))`.
+    /// @param to The minting address
+    /// @param tokenId The NFT to transfer
+    function _safeMint(address to, uint256 tokenId) internal {
+        _mint(to, tokenId);
         if (
             !(
                 to.code.length == 0
@@ -291,9 +303,11 @@ contract ERC721 {
         }
     }
 
-    function safeMint(address to, uint256 tokenId, bytes memory data) internal virtual {
-        mint(to, tokenId);
-
+    /// @dev Same as other `_safeMint` function with an extra data parameter.
+    /// @param to The minting address
+    /// @param tokenId The NFT to transfer
+    function _safeMint(address to, uint256 tokenId, bytes memory data) internal {
+        _mint(to, tokenId);
         if (
             !(
                 to.code.length == 0
@@ -303,6 +317,14 @@ contract ERC721 {
         ) {
             revert UNSAFE_RECIPIENT();
         }
+    }
+    /// @notice Mints a new NFT with `tokenId` for the address `to`. It makes sure that when the receiving address
+    ///  is a smart contract it doesn't lock the NFT.
+    /// @dev External function to mint tokens, also increments `tokenId`. This function should be used when minting. 
+    /// @param to The minting address
+    function safeMint(address to) external {
+        _safeMint(to, _tokenId.current());
+        _tokenId.increment();
     }
 }
 
