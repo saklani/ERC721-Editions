@@ -5,7 +5,8 @@ import "./TokenIssuer.sol";
 
 /**
  * @title ERC721 with Metadata Extension
- * @author saklani
+ * @author saklani (modified)
+ * @author Solmate (https://github.com/transmissions11/solmate/blob/main/src/tokens/ERC721.sol)
  * @dev A gas efficient implementation of ERC721
  */
 
@@ -21,6 +22,8 @@ contract ERC721 {
     /*----------------------------------------------------------------*
      |                             ERRORS                             |
      *----------------------------------------------------------------*/
+
+    error ALREADY_MINTED();
     error NOT_OWNER();
     error UNAUTHORIZED();
     error UNMINTED();
@@ -230,14 +233,10 @@ contract ERC721 {
         if (!(msg.sender == from || _isApprovedForAll[from][msg.sender] || msg.sender == _getApproved[tokenId])) {
             revert UNAUTHORIZED();
         }
-
-        // Underflow of the sender's balance is impossible because we check for
-        // ownership above and the recipient's balance can't realistically overflow.
         unchecked {
             --_balanceOf[from];
             ++_balanceOf[to];
         }
-
         _ownerOf[tokenId] = to;
 
         delete _getApproved[tokenId];
@@ -249,11 +248,66 @@ contract ERC721 {
      |                         ERC165 LOGIC                           |
      *----------------------------------------------------------------*/
 
+    function supportsInterface(bytes4 interfaceId) public view virtual returns (bool) {
+        return interfaceId == 0x01ffc9a7 // ERC165 Interface ID for ERC165
+            || interfaceId == 0x80ac58cd // ERC165 Interface ID for ERC721
+            || interfaceId == 0x5b5e139f; // ERC165 Interface ID for ERC721Metadata
+    }
+
     /*----------------------------------------------------------------*
      |                          MINT LOGIC                            |
      *----------------------------------------------------------------*/
+
+    function mint(address to, uint256 id) internal virtual {
+        if (to == address(0)) {
+            revert ZERO_ADDRESS();
+        }
+
+        if (_ownerOf[id] != address(0)) {
+            revert ALREADY_MINTED();
+        }
+
+        // Counter overflow is incredibly unrealistic.
+        unchecked {
+            ++_balanceOf[to];
+        }
+
+        _ownerOf[id] = to;
+
+        emit Transfer(address(0), to, id);
+    }
+
+    function safeMint(address to, uint256 tokenId) internal virtual {
+        mint(to, tokenId);
+
+        if (
+            !(
+                to.code.length == 0
+                    || ERC721TokenReceiver(to).onERC721Received(msg.sender, address(0), tokenId, "")
+                        == ERC721TokenReceiver.onERC721Received.selector
+            )
+        ) {
+            revert UNSAFE_RECIPIENT();
+        }
+    }
+
+    function safeMint(address to, uint256 tokenId, bytes memory data) internal virtual {
+        mint(to, tokenId);
+
+        if (
+            !(
+                to.code.length == 0
+                    || ERC721TokenReceiver(to).onERC721Received(msg.sender, address(0), tokenId, data)
+                        == ERC721TokenReceiver.onERC721Received.selector
+            )
+        ) {
+            revert UNSAFE_RECIPIENT();
+        }
+    }
 }
 
+/// @notice A generic interface for a contract which properly accepts ERC721 tokens.
+/// @author Solmate (https://github.com/transmissions11/solmate/blob/main/src/tokens/ERC721.sol)
 abstract contract ERC721TokenReceiver {
     function onERC721Received(address, address, uint256, bytes calldata) external virtual returns (bytes4) {
         return ERC721TokenReceiver.onERC721Received.selector;
