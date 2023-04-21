@@ -47,7 +47,7 @@ contract ERC721Test is DSTestPlus {
     MockERC721 token;
 
     function setUp() public {
-        token = new MockERC721("Token", "TKN", "https://picsum.photos/200/200", 100);
+        token = new MockERC721("Token", "TKN", "https://picsum.photos/200/200", 100, 1000);
     }
 
     function invariantMetadata() public {
@@ -55,6 +55,7 @@ contract ERC721Test is DSTestPlus {
         assertEq(token.symbol(), "TKN");
         assertEq(token.baseURI(), "https://picsum.photos/200/200");
         assertEq(token.mintPrice(), 100);
+        assertEq(token.mintLimit(), 1000);
     }
 
     function testMint() public {
@@ -326,7 +327,7 @@ contract ERC721Test is DSTestPlus {
     }
 
     function testMetadata(string memory name, string memory symbol) public {
-        MockERC721 tkn = new MockERC721(name, symbol, "", 100);
+        MockERC721 tkn = new MockERC721(name, symbol, "", 100, 100);
 
         assertEq(tkn.name(), name);
         assertEq(tkn.symbol(), symbol);

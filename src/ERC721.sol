@@ -24,7 +24,9 @@ contract ERC721 {
      *----------------------------------------------------------------*/
 
     error ALREADY_MINTED();
+    error MINT_LIMIT();
     error NOT_OWNER();
+    error NOT_ENOUGH_ETH();
     error UNAUTHORIZED();
     error UNMINTED();
     error UNSAFE_RECIPIENT();
@@ -66,6 +68,12 @@ contract ERC721 {
     function mintPrice() public view returns (uint256) {
         return _mintPrice;
     }
+
+    uint256 private immutable _mintLimit;
+
+    function mintLimit() public view returns (uint256) {
+        return _mintLimit;
+    }
     /*----------------------------------------------------------------*
      |                   TOKEN ID ISSUER/TRACKER                      |
      *----------------------------------------------------------------*/
@@ -78,11 +86,18 @@ contract ERC721 {
      |                          CONSTRUCTOR                           |
      *----------------------------------------------------------------*/
 
-    constructor(string memory name_, string memory symbol_, string memory uri_, uint256 mintPrice_) {
+    constructor(
+        string memory name_,
+        string memory symbol_,
+        string memory uri_,
+        uint256 mintPrice_,
+        uint256 mintLimit_
+    ) {
         _name = name_;
         _symbol = symbol_;
         _uri = uri_;
         _mintPrice = mintPrice_;
+        _mintLimit = mintLimit_;
     }
     /*----------------------------------------------------------------*
      |                            BALANCE                             |
@@ -335,8 +350,15 @@ contract ERC721 {
     /// @dev External function to mint tokens, also increments `tokenId`. This function should be used when minting.
     /// @param to The minting address
 
-    function mint(address to) external {
-        _safeMint(to, _tokenId.current());
+    function mint(address to) external payable {
+        if (msg.value < _mintPrice) {
+            revert NOT_ENOUGH_ETH();
+        }
+        uint256 current = _tokenId.current();
+        if (current == _mintLimit) {
+            revert MINT_LIMIT();
+        }
+        _safeMint(to, current);
         _tokenId.increment();
     }
 }
