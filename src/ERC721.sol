@@ -18,7 +18,7 @@ contract ERC721 {
     event Transfer(address indexed from, address indexed to, uint256 indexed tokenId);
     event Approval(address indexed owner, address indexed spender, uint256 indexed tokenId);
     event ApprovalForAll(address indexed owner, address indexed operator, bool approved);
-
+    event Withdraw(uint256 amount);
     /*----------------------------------------------------------------*
      |                             ERRORS                             |
      *----------------------------------------------------------------*/
@@ -30,11 +30,14 @@ contract ERC721 {
     error UNAUTHORIZED();
     error UNMINTED();
     error UNSAFE_RECIPIENT();
+    error WITHDRAW_FAILED();
     error ZERO_ADDRESS();
 
     /*----------------------------------------------------------------*
      |                            METADATA                            |
      *----------------------------------------------------------------*/
+
+    address private _owner;
 
     string private _name;
 
@@ -83,16 +86,28 @@ contract ERC721 {
     TokenIssuer.TokenId _tokenId;
 
     /*----------------------------------------------------------------*
+     |                           MODIFIERS                            |
+     *----------------------------------------------------------------*/
+    modifier onlyOwner() {
+        if (msg.sender != _owner) {
+            revert UNAUTHORIZED();
+        }
+        _;
+    }
+
+    /*----------------------------------------------------------------*
      |                          CONSTRUCTOR                           |
      *----------------------------------------------------------------*/
 
     constructor(
+        address owner_,
         string memory name_,
         string memory symbol_,
         string memory uri_,
         uint256 mintPrice_,
         uint256 mintLimit_
     ) {
+        _owner = owner_;
         _name = name_;
         _symbol = symbol_;
         _uri = uri_;
@@ -360,6 +375,15 @@ contract ERC721 {
         }
         _safeMint(to, current);
         _tokenId.increment();
+    }
+
+    function withdraw() public onlyOwner {
+        uint256 amount = address(this).balance;
+        (bool success,) = _owner.call{value: amount}("");
+        if (!success) {
+            revert WITHDRAW_FAILED();
+        }
+        emit Withdraw(amount);
     }
 }
 
