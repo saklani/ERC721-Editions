@@ -63,17 +63,6 @@ contract ERC721 {
         return _uri;
     }
 
-    uint256 private immutable _mintPrice;
-
-    function mintPrice() public view returns (uint256) {
-        return _mintPrice;
-    }
-
-    uint256 private immutable _mintLimit;
-
-    function mintLimit() public view returns (uint256) {
-        return _mintLimit;
-    }
     /*----------------------------------------------------------------*
      |                   TOKEN ID ISSUER/TRACKER                      |
      *----------------------------------------------------------------*/
@@ -105,16 +94,12 @@ contract ERC721 {
         address owner_,
         string memory name_,
         string memory symbol_,
-        string memory uri_,
-        uint256 mintPrice_,
-        uint256 mintLimit_
+        string memory uri_
     ) {
         _owner = owner_;
         _name = name_;
         _symbol = symbol_;
         _uri = uri_;
-        _mintPrice = mintPrice_;
-        _mintLimit = mintLimit_;
     }
     /*----------------------------------------------------------------*
      |                            BALANCE                             |
@@ -307,7 +292,7 @@ contract ERC721 {
     ///
     /// @param to The minting address
     /// @param tokenId The NFT to transfer
-    function _mint(address to, uint256 tokenId) private {
+    function _mint(address to, uint256 tokenId) internal {
         if (to == address(0)) {
             revert ZERO_ADDRESS();
         }
@@ -331,7 +316,7 @@ contract ERC721 {
     ///  `bytes4(keccak256("onERC721Received(address,address,uint256,bytes)"))`.
     /// @param to The minting address
     /// @param tokenId The NFT to transfer
-    function _safeMint(address to, uint256 tokenId) private {
+    function _safeMint(address to, uint256 tokenId) internal {
         _mint(to, tokenId);
         if (
             to.code.length != 0
@@ -345,7 +330,7 @@ contract ERC721 {
     /// @dev Same as other `_safeMint` function with an extra data parameter.
     /// @param to The minting address
     /// @param tokenId The NFT to transfer
-    function _safeMint(address to, uint256 tokenId, bytes memory data) private {
+    function _safeMint(address to, uint256 tokenId, bytes memory data) internal {
         _mint(to, tokenId);
         if (
             to.code.length != 0
@@ -354,21 +339,6 @@ contract ERC721 {
         ) {
             revert UNSAFE_RECIPIENT();
         }
-    }
-    /// @notice Mints a new NFT with `tokenId` for the address `to`. It makes sure that when the receiving address
-    ///  is a smart contract it doesn't lock the NFT.
-    /// @dev External function to mint tokens, also increments `tokenId`. This function should be used when minting.
-    /// @param to The minting address
-
-    function mint(address to) external payable {
-        if (msg.value < _mintPrice) {
-            revert NOT_ENOUGH_ETH();
-        }
-        if (_mintLimit <= _tokenId) {
-            revert MINT_LIMIT();
-        }
-        _safeMint(to, _tokenId);
-        _incrementTokenId();
     }
 
     /*----------------------------------------------------------------*
