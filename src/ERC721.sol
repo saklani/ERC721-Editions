@@ -90,12 +90,7 @@ contract ERC721 {
      |                          CONSTRUCTOR                           |
      *----------------------------------------------------------------*/
 
-    constructor(
-        address owner_,
-        string memory name_,
-        string memory symbol_,
-        string memory uri_
-    ) {
+    constructor(address owner_, string memory name_, string memory symbol_, string memory uri_) {
         _owner = owner_;
         _name = name_;
         _symbol = symbol_;
