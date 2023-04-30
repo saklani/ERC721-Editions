@@ -47,85 +47,54 @@ contract ERC721Test is DSTestPlus {
     MockERC721 token;
 
     function setUp() public {
-        token = new MockERC721("Token", "TKN", "https://picsum.photos/200/200", 100, 1000);
+        token = new MockERC721(address(this), "Token", "TKN", "https://example.com", 100, 2);
     }
 
     function invariantMetadata() public {
         assertEq(token.name(), "Token");
         assertEq(token.symbol(), "TKN");
-        assertEq(token.baseURI(), "https://picsum.photos/200/200");
+        assertEq(token.baseURI(), "https://example.com");
         assertEq(token.mintPrice(), 100);
-        assertEq(token.mintLimit(), 1000);
+        assertEq(token.mintLimit(), 2);
     }
 
-    function testMint() public {
-        token.mint(address(0xBEEF), 1337);
-        
-        assertEq(token.balanceOf(address(0xBEEF)), 1);
-        assertEq(token.ownerOf(1337), address(0xBEEF));
+    function testBalanceOfZeroAddressError() public {
+        hevm.expectRevert(abi.encodeWithSignature("ZERO_ADDRESS()"));
+        token.balanceOf(address(0));
+    }
+
+    function testOwnerOfUnmintedError() public {
+        hevm.expectRevert(abi.encodeWithSignature("UNMINTED()"));
+        token.ownerOf(1337);
     }
 
     function testApprove() public {
-        token.mint(address(this), 1337);
-
+        token.internalMint(address(this), 1337);
         token.approve(address(0xBEEF), 1337);
-
         assertEq(token.getApproved(1337), address(0xBEEF));
+    }
+
+    function testApproveUnmintedError() public {
+        hevm.expectRevert(abi.encodeWithSignature("UNMINTED()"));
+        token.approve(address(0xBEEF), 1337);
+    }
+
+    function testApproveUnauthorizedError() public {
+        token.internalMint(address(this), 1337);
+        hevm.prank(address(0xABCD));
+        hevm.expectRevert(abi.encodeWithSignature("UNAUTHORIZED()"));
+        token.approve(address(0xBEEF), 1337);
     }
 
     function testApproveAll() public {
         token.setApprovalForAll(address(0xBEEF), true);
-
         assertTrue(token.isApprovedForAll(address(this), address(0xBEEF)));
-    }
-
-    function testTransferFrom() public {
-        address from = address(0xABCD);
-
-        token.mint(from, 1337);
-
-        hevm.prank(from);
-        token.approve(address(this), 1337);
-
-        token.transferFrom(from, address(0xBEEF), 1337);
-
-        assertEq(token.getApproved(1337), address(0));
-        assertEq(token.ownerOf(1337), address(0xBEEF));
-        assertEq(token.balanceOf(address(0xBEEF)), 1);
-        assertEq(token.balanceOf(from), 0);
-    }
-
-    function testTransferFromSelf() public {
-        token.mint(address(this), 1337);
-
-        token.transferFrom(address(this), address(0xBEEF), 1337);
-
-        assertEq(token.getApproved(1337), address(0));
-        assertEq(token.ownerOf(1337), address(0xBEEF));
-        assertEq(token.balanceOf(address(0xBEEF)), 1);
-        assertEq(token.balanceOf(address(this)), 0);
-    }
-
-    function testTransferFromApproveAll() public {
-        address from = address(0xABCD);
-
-        token.mint(from, 1337);
-
-        hevm.prank(from);
-        token.setApprovalForAll(address(this), true);
-
-        token.transferFrom(from, address(0xBEEF), 1337);
-
-        assertEq(token.getApproved(1337), address(0));
-        assertEq(token.ownerOf(1337), address(0xBEEF));
-        assertEq(token.balanceOf(address(0xBEEF)), 1);
-        assertEq(token.balanceOf(from), 0);
     }
 
     function testSafeTransferFromToEOA() public {
         address from = address(0xABCD);
 
-        token.mint(from, 1337);
+        token.internalMint(from, 1337);
 
         hevm.prank(from);
         token.setApprovalForAll(address(this), true);
@@ -142,7 +111,7 @@ contract ERC721Test is DSTestPlus {
         address from = address(0xABCD);
         ERC721Recipient recipient = new ERC721Recipient();
 
-        token.mint(from, 1337);
+        token.internalMint(from, 1337);
 
         hevm.prank(from);
         token.setApprovalForAll(address(this), true);
@@ -164,7 +133,7 @@ contract ERC721Test is DSTestPlus {
         address from = address(0xABCD);
         ERC721Recipient recipient = new ERC721Recipient();
 
-        token.mint(from, 1337);
+        token.internalMint(from, 1337);
 
         hevm.prank(from);
         token.setApprovalForAll(address(this), true);
@@ -180,6 +149,150 @@ contract ERC721Test is DSTestPlus {
         assertEq(recipient.from(), from);
         assertEq(recipient.id(), 1337);
         assertBytesEq(recipient.data(), "testing 123");
+    }
+
+    function testSafeTransferFromToNonERC721RecipientError() public {
+        address r = address(new NonERC721Recipient());
+        emit log_address(r);
+        token.internalMint(address(this), 1337);
+        hevm.expectRevert(abi.encodeWithSignature("UNSAFE_RECIPIENT()"));
+        token.safeTransferFrom(address(this), r, 1337);
+    }
+
+    function testSafeTransferFromToNonERC721RecipientWithDataError() public {
+        token.internalMint(address(this), 1337);
+        hevm.expectRevert(abi.encodeWithSignature("UNSAFE_RECIPIENT()"));
+        token.safeTransferFrom(address(this), address(new NonERC721Recipient()), 1337, "testing 123");
+    }
+
+    function testSafeTransferFromToRevertingERC721Recipient() public {
+        token.internalMint(address(this), 1337);
+        hevm.expectRevert(abi.encodeWithSignature("UNSAFE_RECIPIENT()"));
+        token.safeTransferFrom(address(this), address(new RevertingERC721Recipient()), 1337);
+    }
+
+    function testSafeTransferFromToRevertingERC721RecipientWithDataError() public {
+        token.internalMint(address(this), 1337);
+        hevm.expectRevert(abi.encodeWithSignature("UNSAFE_RECIPIENT()"));
+        token.safeTransferFrom(address(this), address(new RevertingERC721Recipient()), 1337, "testing 123");
+    }
+
+    function testSafeTransferFromToERC721RecipientWithWrongReturnDataError() public {
+        token.internalMint(address(this), 1337);
+        hevm.expectRevert(abi.encodeWithSignature("UNSAFE_RECIPIENT()"));
+        token.safeTransferFrom(address(this), address(new WrongReturnDataERC721Recipient()), 1337);
+    }
+
+    function testSafeTransferFromToERC721RecipientWithWrongReturnDataWithDataError() public {
+        token.internalMint(address(this), 1337);
+        hevm.expectRevert(abi.encodeWithSignature("UNSAFE_RECIPIENT()"));
+        token.safeTransferFrom(address(this), address(new WrongReturnDataERC721Recipient()), 1337, "testing 123");
+    }
+
+    function testTransferFrom() public {
+        address from = address(0xABCD);
+
+        token.internalMint(from, 1337);
+
+        hevm.prank(from);
+        token.approve(address(this), 1337);
+
+        token.transferFrom(from, address(0xBEEF), 1337);
+
+        assertEq(token.getApproved(1337), address(0));
+        assertEq(token.ownerOf(1337), address(0xBEEF));
+        assertEq(token.balanceOf(address(0xBEEF)), 1);
+        assertEq(token.balanceOf(from), 0);
+    }
+
+    function testTransferFromSelf() public {
+        token.internalMint(address(this), 1337);
+
+        token.transferFrom(address(this), address(0xBEEF), 1337);
+
+        assertEq(token.getApproved(1337), address(0));
+        assertEq(token.ownerOf(1337), address(0xBEEF));
+        assertEq(token.balanceOf(address(0xBEEF)), 1);
+        assertEq(token.balanceOf(address(this)), 0);
+    }
+
+    function testTransferFromApproveAll() public {
+        address from = address(0xABCD);
+
+        token.internalMint(from, 1337);
+
+        hevm.prank(from);
+        token.setApprovalForAll(address(this), true);
+
+        token.transferFrom(from, address(0xBEEF), 1337);
+
+        assertEq(token.getApproved(1337), address(0));
+        assertEq(token.ownerOf(1337), address(0xBEEF));
+        assertEq(token.balanceOf(address(0xBEEF)), 1);
+        assertEq(token.balanceOf(from), 0);
+    }
+
+    function testTransferFromUnmintedError() public {
+        hevm.expectRevert(abi.encodeWithSignature("UNMINTED()"));
+        token.transferFrom(address(0xFEED), address(0xBEEF), 1337);
+    }
+
+    function testTransferFromWrongFromError() public {
+        token.internalMint(address(0xCAFE), 1337);
+        hevm.expectRevert(abi.encodeWithSignature("NOT_OWNER()"));
+        token.transferFrom(address(0xFEED), address(0xBEEF), 1337);
+    }
+
+    function testTransferFromToZeroError() public {
+        token.internalMint(address(this), 1337);
+        hevm.expectRevert(abi.encodeWithSignature("ZERO_ADDRESS()"));
+        token.transferFrom(address(this), address(0), 1337);
+    }
+
+    function testTransferFromNotOwnerError() public {
+        token.internalMint(address(0xFEED), 1337);
+        hevm.expectRevert(abi.encodeWithSignature("UNAUTHORIZED()"));
+        token.transferFrom(address(0xFEED), address(0xBEEF), 1337);
+    }
+
+    function testInternalMint() public {
+        token.internalMint(address(0xBEEF), 1337);
+        assertEq(token.balanceOf(address(0xBEEF)), 1);
+        assertEq(token.ownerOf(1337), address(0xBEEF));
+    }
+
+    function testInternalMintToZeroRevert() public {
+        hevm.expectRevert(abi.encodeWithSignature("ZERO_ADDRESS()"));
+        token.internalMint(address(0), 1337);
+    }
+
+    function testInternalMintDoubleMintRevert() public {
+        token.internalMint(address(0xBEEF), 1337);
+        hevm.expectRevert(abi.encodeWithSignature("ALREADY_MINTED()"));
+        token.internalMint(address(0xBEEF), 1337);
+    }
+
+    function testMint() public {
+        address to = address(0xBEEF);
+        token.mint{value: 1000}(to);
+        assertEq(token.balanceOf(address(0xBEEF)), 1);
+        assertEq(token.ownerOf(0), address(0xBEEF));
+    }
+
+    function testMintInsufficientETHRevert() public {
+        address to = address(0xBEEF);
+        uint256 value = token.mintPrice() - 1;
+        hevm.expectRevert(abi.encodeWithSignature("NOT_ENOUGH_ETH()"));
+        token.mint{value: value}(to);
+    }
+
+    function testMintMintLimitRevert() public {
+        address to = address(0xBEEF);
+        uint256 value = token.mintPrice();
+        token.mint{value: value}(to);
+        token.mint{value: value}(to);
+        hevm.expectRevert(abi.encodeWithSignature("MINT_LIMIT()"));
+        token.mint{value: value}(to);
     }
 
     function testSafeMintToEOA() public {
@@ -217,413 +330,33 @@ contract ERC721Test is DSTestPlus {
         assertBytesEq(to.data(), "testing 123");
     }
 
-    function testFailMintToZero() public {
-        token.mint(address(0), 1337);
-    }
-
-    function testFailDoubleMint() public {
-        token.mint(address(0xBEEF), 1337);
-        token.mint(address(0xBEEF), 1337);
-    }
-
-    function testFailApproveUnMinted() public {
-        token.approve(address(0xBEEF), 1337);
-    }
-
-    function testFailApproveUnAuthorized() public {
-        token.mint(address(0xCAFE), 1337);
-
-        token.approve(address(0xBEEF), 1337);
-    }
-
-    function testFailTransferFromUnOwned() public {
-        token.transferFrom(address(0xFEED), address(0xBEEF), 1337);
-    }
-
-    function testFailTransferFromWrongFrom() public {
-        token.mint(address(0xCAFE), 1337);
-
-        token.transferFrom(address(0xFEED), address(0xBEEF), 1337);
-    }
-
-    function testFailTransferFromToZero() public {
-        token.mint(address(this), 1337);
-
-        token.transferFrom(address(this), address(0), 1337);
-    }
-
-    function testFailTransferFromNotOwner() public {
-        token.mint(address(0xFEED), 1337);
-
-        token.transferFrom(address(0xFEED), address(0xBEEF), 1337);
-    }
-
-    function testFailSafeTransferFromToNonERC721Recipient() public {
-        token.mint(address(this), 1337);
-
-        token.safeTransferFrom(address(this), address(new NonERC721Recipient()), 1337);
-    }
-
-    function testFailSafeTransferFromToNonERC721RecipientWithData() public {
-        token.mint(address(this), 1337);
-
-        token.safeTransferFrom(address(this), address(new NonERC721Recipient()), 1337, "testing 123");
-    }
-
-    function testFailSafeTransferFromToRevertingERC721Recipient() public {
-        token.mint(address(this), 1337);
-
-        token.safeTransferFrom(address(this), address(new RevertingERC721Recipient()), 1337);
-    }
-
-    function testFailSafeTransferFromToRevertingERC721RecipientWithData() public {
-        token.mint(address(this), 1337);
-
-        token.safeTransferFrom(address(this), address(new RevertingERC721Recipient()), 1337, "testing 123");
-    }
-
-    function testFailSafeTransferFromToERC721RecipientWithWrongReturnData() public {
-        token.mint(address(this), 1337);
-
-        token.safeTransferFrom(address(this), address(new WrongReturnDataERC721Recipient()), 1337);
-    }
-
-    function testFailSafeTransferFromToERC721RecipientWithWrongReturnDataWithData() public {
-        token.mint(address(this), 1337);
-
-        token.safeTransferFrom(address(this), address(new WrongReturnDataERC721Recipient()), 1337, "testing 123");
-    }
-
-    function testFailSafeMintToNonERC721Recipient() public {
+    function testSafeMintToNonERC721RecipientError() public {
+        hevm.expectRevert(abi.encodeWithSignature("UNSAFE_RECIPIENT()"));
         token.safeMint(address(new NonERC721Recipient()), 1337);
     }
 
-    function testFailSafeMintToNonERC721RecipientWithData() public {
+    function testSafeMintToNonERC721RecipientWithDataError() public {
+        hevm.expectRevert(abi.encodeWithSignature("UNSAFE_RECIPIENT()"));
         token.safeMint(address(new NonERC721Recipient()), 1337, "testing 123");
     }
 
-    function testFailSafeMintToRevertingERC721Recipient() public {
+    function testSafeMintToRevertingERC721RecipientError() public {
+        hevm.expectRevert(abi.encodeWithSignature("UNSAFE_RECIPIENT()"));
         token.safeMint(address(new RevertingERC721Recipient()), 1337);
     }
 
-    function testFailSafeMintToRevertingERC721RecipientWithData() public {
+    function testSafeMintToRevertingERC721RecipientWithDataError() public {
+        hevm.expectRevert(abi.encodeWithSignature("UNSAFE_RECIPIENT()"));
         token.safeMint(address(new RevertingERC721Recipient()), 1337, "testing 123");
     }
 
-    function testFailSafeMintToERC721RecipientWithWrongReturnData() public {
+    function testSafeMintToERC721RecipientWithWrongReturnDataError() public {
+        hevm.expectRevert(abi.encodeWithSignature("UNSAFE_RECIPIENT()"));
         token.safeMint(address(new WrongReturnDataERC721Recipient()), 1337);
     }
 
-    function testFailSafeMintToERC721RecipientWithWrongReturnDataWithData() public {
+    function testSafeMintToERC721RecipientWithWrongReturnDataWithDataError() public {
+        hevm.expectRevert(abi.encodeWithSignature("UNSAFE_RECIPIENT()"));
         token.safeMint(address(new WrongReturnDataERC721Recipient()), 1337, "testing 123");
-    }
-
-    function testFailBalanceOfZeroAddress() public view {
-        token.balanceOf(address(0));
-    }
-
-    function testFailOwnerOfUnminted() public view {
-        token.ownerOf(1337);
-    }
-
-    function testMetadata(string memory name, string memory symbol) public {
-        MockERC721 tkn = new MockERC721(name, symbol, "", 100, 100);
-
-        assertEq(tkn.name(), name);
-        assertEq(tkn.symbol(), symbol);
-    }
-
-    function testMint(address to, uint256 id) public {
-        if (to == address(0)) to = address(0xBEEF);
-
-        token.mint(to, id);
-
-        assertEq(token.balanceOf(to), 1);
-        assertEq(token.ownerOf(id), to);
-    }
-
-    function testApprove(address to, uint256 id) public {
-        if (to == address(0)) to = address(0xBEEF);
-
-        token.mint(address(this), id);
-
-        token.approve(to, id);
-
-        assertEq(token.getApproved(id), to);
-    }
-
-    function testApproveAll(address to, bool approved) public {
-        token.setApprovalForAll(to, approved);
-
-        assertBoolEq(token.isApprovedForAll(address(this), to), approved);
-    }
-
-    function testTransferFrom(uint256 id, address to) public {
-        address from = address(0xABCD);
-
-        if (to == address(0) || to == from) to = address(0xBEEF);
-
-        token.mint(from, id);
-
-        hevm.prank(from);
-        token.approve(address(this), id);
-
-        token.transferFrom(from, to, id);
-
-        assertEq(token.getApproved(id), address(0));
-        assertEq(token.ownerOf(id), to);
-        assertEq(token.balanceOf(to), 1);
-        assertEq(token.balanceOf(from), 0);
-    }
-
-    function testTransferFromSelf(uint256 id, address to) public {
-        if (to == address(0) || to == address(this)) to = address(0xBEEF);
-
-        token.mint(address(this), id);
-
-        token.transferFrom(address(this), to, id);
-
-        assertEq(token.getApproved(id), address(0));
-        assertEq(token.ownerOf(id), to);
-        assertEq(token.balanceOf(to), 1);
-        assertEq(token.balanceOf(address(this)), 0);
-    }
-
-    function testTransferFromApproveAll(uint256 id, address to) public {
-        address from = address(0xABCD);
-
-        if (to == address(0) || to == from) to = address(0xBEEF);
-
-        token.mint(from, id);
-
-        hevm.prank(from);
-        token.setApprovalForAll(address(this), true);
-
-        token.transferFrom(from, to, id);
-
-        assertEq(token.getApproved(id), address(0));
-        assertEq(token.ownerOf(id), to);
-        assertEq(token.balanceOf(to), 1);
-        assertEq(token.balanceOf(from), 0);
-    }
-
-    function testSafeTransferFromToEOA(uint256 id, address to) public {
-        address from = address(0xABCD);
-
-        if (to == address(0) || to == from) to = address(0xBEEF);
-
-        if (uint256(uint160(to)) <= 18 || to.code.length > 0) return;
-
-        token.mint(from, id);
-
-        hevm.prank(from);
-        token.setApprovalForAll(address(this), true);
-
-        token.safeTransferFrom(from, to, id);
-
-        assertEq(token.getApproved(id), address(0));
-        assertEq(token.ownerOf(id), to);
-        assertEq(token.balanceOf(to), 1);
-        assertEq(token.balanceOf(from), 0);
-    }
-
-    function testSafeTransferFromToERC721Recipient(uint256 id) public {
-        address from = address(0xABCD);
-
-        ERC721Recipient recipient = new ERC721Recipient();
-
-        token.mint(from, id);
-
-        hevm.prank(from);
-        token.setApprovalForAll(address(this), true);
-
-        token.safeTransferFrom(from, address(recipient), id);
-
-        assertEq(token.getApproved(id), address(0));
-        assertEq(token.ownerOf(id), address(recipient));
-        assertEq(token.balanceOf(address(recipient)), 1);
-        assertEq(token.balanceOf(from), 0);
-
-        assertEq(recipient.operator(), address(this));
-        assertEq(recipient.from(), from);
-        assertEq(recipient.id(), id);
-        assertBytesEq(recipient.data(), "");
-    }
-
-    function testSafeTransferFromToERC721RecipientWithData(uint256 id, bytes calldata data) public {
-        address from = address(0xABCD);
-        ERC721Recipient recipient = new ERC721Recipient();
-
-        token.mint(from, id);
-
-        hevm.prank(from);
-        token.setApprovalForAll(address(this), true);
-
-        token.safeTransferFrom(from, address(recipient), id, data);
-
-        assertEq(token.getApproved(id), address(0));
-        assertEq(token.ownerOf(id), address(recipient));
-        assertEq(token.balanceOf(address(recipient)), 1);
-        assertEq(token.balanceOf(from), 0);
-
-        assertEq(recipient.operator(), address(this));
-        assertEq(recipient.from(), from);
-        assertEq(recipient.id(), id);
-        assertBytesEq(recipient.data(), data);
-    }
-
-    function testSafeMintToEOA(uint256 id, address to) public {
-        if (to == address(0)) to = address(0xBEEF);
-
-        if (uint256(uint160(to)) <= 18 || to.code.length > 0) return;
-
-        token.safeMint(to, id);
-
-        assertEq(token.ownerOf(id), address(to));
-        assertEq(token.balanceOf(address(to)), 1);
-    }
-
-    function testSafeMintToERC721Recipient(uint256 id) public {
-        ERC721Recipient to = new ERC721Recipient();
-
-        token.safeMint(address(to), id);
-
-        assertEq(token.ownerOf(id), address(to));
-        assertEq(token.balanceOf(address(to)), 1);
-
-        assertEq(to.operator(), address(this));
-        assertEq(to.from(), address(0));
-        assertEq(to.id(), id);
-        assertBytesEq(to.data(), "");
-    }
-
-    function testSafeMintToERC721RecipientWithData(uint256 id, bytes calldata data) public {
-        ERC721Recipient to = new ERC721Recipient();
-
-        token.safeMint(address(to), id, data);
-
-        assertEq(token.ownerOf(id), address(to));
-        assertEq(token.balanceOf(address(to)), 1);
-
-        assertEq(to.operator(), address(this));
-        assertEq(to.from(), address(0));
-        assertEq(to.id(), id);
-        assertBytesEq(to.data(), data);
-    }
-
-    function testFailMintToZero(uint256 id) public {
-        token.mint(address(0), id);
-    }
-
-    function testFailDoubleMint(uint256 id, address to) public {
-        if (to == address(0)) to = address(0xBEEF);
-
-        token.mint(to, id);
-        token.mint(to, id);
-    }
-
-    function testFailApproveUnMinted(uint256 id, address to) public {
-        token.approve(to, id);
-    }
-
-    function testFailApproveUnAuthorized(address owner, uint256 id, address to) public {
-        if (owner == address(0) || owner == address(this)) owner = address(0xBEEF);
-
-        token.mint(owner, id);
-
-        token.approve(to, id);
-    }
-
-    function testFailTransferFromUnOwned(address from, address to, uint256 id) public {
-        token.transferFrom(from, to, id);
-    }
-
-    function testFailTransferFromWrongFrom(address owner, address from, address to, uint256 id) public {
-        if (owner == address(0)) to = address(0xBEEF);
-        if (from == owner) revert();
-
-        token.mint(owner, id);
-
-        token.transferFrom(from, to, id);
-    }
-
-    function testFailTransferFromToZero(uint256 id) public {
-        token.mint(address(this), id);
-
-        token.transferFrom(address(this), address(0), id);
-    }
-
-    function testFailTransferFromNotOwner(address from, address to, uint256 id) public {
-        if (from == address(this)) from = address(0xBEEF);
-
-        token.mint(from, id);
-
-        token.transferFrom(from, to, id);
-    }
-
-    function testFailSafeTransferFromToNonERC721Recipient(uint256 id) public {
-        token.mint(address(this), id);
-
-        token.safeTransferFrom(address(this), address(new NonERC721Recipient()), id);
-    }
-
-    function testFailSafeTransferFromToNonERC721RecipientWithData(uint256 id, bytes calldata data) public {
-        token.mint(address(this), id);
-
-        token.safeTransferFrom(address(this), address(new NonERC721Recipient()), id, data);
-    }
-
-    function testFailSafeTransferFromToRevertingERC721Recipient(uint256 id) public {
-        token.mint(address(this), id);
-
-        token.safeTransferFrom(address(this), address(new RevertingERC721Recipient()), id);
-    }
-
-    function testFailSafeTransferFromToRevertingERC721RecipientWithData(uint256 id, bytes calldata data) public {
-        token.mint(address(this), id);
-
-        token.safeTransferFrom(address(this), address(new RevertingERC721Recipient()), id, data);
-    }
-
-    function testFailSafeTransferFromToERC721RecipientWithWrongReturnData(uint256 id) public {
-        token.mint(address(this), id);
-
-        token.safeTransferFrom(address(this), address(new WrongReturnDataERC721Recipient()), id);
-    }
-
-    function testFailSafeTransferFromToERC721RecipientWithWrongReturnDataWithData(uint256 id, bytes calldata data)
-        public
-    {
-        token.mint(address(this), id);
-
-        token.safeTransferFrom(address(this), address(new WrongReturnDataERC721Recipient()), id, data);
-    }
-
-    function testFailSafeMintToNonERC721Recipient(uint256 id) public {
-        token.safeMint(address(new NonERC721Recipient()), id);
-    }
-
-    function testFailSafeMintToNonERC721RecipientWithData(uint256 id, bytes calldata data) public {
-        token.safeMint(address(new NonERC721Recipient()), id, data);
-    }
-
-    function testFailSafeMintToRevertingERC721Recipient(uint256 id) public {
-        token.safeMint(address(new RevertingERC721Recipient()), id);
-    }
-
-    function testFailSafeMintToRevertingERC721RecipientWithData(uint256 id, bytes calldata data) public {
-        token.safeMint(address(new RevertingERC721Recipient()), id, data);
-    }
-
-    function testFailSafeMintToERC721RecipientWithWrongReturnData(uint256 id) public {
-        token.safeMint(address(new WrongReturnDataERC721Recipient()), id);
-    }
-
-    function testFailSafeMintToERC721RecipientWithWrongReturnDataWithData(uint256 id, bytes calldata data) public {
-        token.safeMint(address(new WrongReturnDataERC721Recipient()), id, data);
-    }
-
-    function testFailOwnerOfUnminted(uint256 id) public view {
-        token.ownerOf(id);
     }
 }

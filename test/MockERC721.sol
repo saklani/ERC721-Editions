@@ -4,11 +4,16 @@ pragma solidity >=0.8.0;
 import {ERC721} from "../src/ERC721.sol";
 
 contract MockERC721 is ERC721 {
-    constructor(string memory _name, string memory _symbol, string memory _uri, uint256 _mintPrice, uint256 _mintLimit)
-        ERC721(_name, _symbol, _uri, _mintPrice, _mintLimit)
-    {}
+    constructor(
+        address _owner,
+        string memory _name,
+        string memory _symbol,
+        string memory _uri,
+        uint256 _mintPrice,
+        uint256 _mintLimit
+    ) ERC721(_owner, _name, _symbol, _uri, _mintPrice, _mintLimit) {}
 
-    function mint(address to, uint256 tokenId) public {
+    function internalMint(address to, uint256 tokenId) public {
         _mint(to, tokenId);
     }
 
