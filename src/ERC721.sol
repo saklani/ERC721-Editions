@@ -74,7 +74,7 @@ contract ERC721 {
         }
     }
 
-    uint256 _tokenId;
+    uint256 internal _tokenId;
 
     /*----------------------------------------------------------------*
      |                           MODIFIERS                            |
