@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: AGPL-3.0-only
 pragma solidity >=0.8.0;
+
 /**
  * @title ERC721 with Metadata Extension
  * @author saklani (modified)
@@ -7,7 +8,7 @@ pragma solidity >=0.8.0;
  * @dev A gas efficient implementation of ERC721
  */
 
-contract ERC721 {
+abstract contract ERC721 {
     /*----------------------------------------------------------------*
      |                             EVENTS                             |
      *----------------------------------------------------------------*/
@@ -15,7 +16,7 @@ contract ERC721 {
     event Transfer(address indexed from, address indexed to, uint256 indexed tokenId);
     event Approval(address indexed owner, address indexed spender, uint256 indexed tokenId);
     event ApprovalForAll(address indexed owner, address indexed operator, bool approved);
-    event Withdraw(uint256 amount);
+
     /*----------------------------------------------------------------*
      |                             ERRORS                             |
      *----------------------------------------------------------------*/
@@ -27,14 +28,11 @@ contract ERC721 {
     error UNAUTHORIZED();
     error UNMINTED();
     error UNSAFE_RECIPIENT();
-    error WITHDRAW_FAILED();
     error ZERO_ADDRESS();
 
     /*----------------------------------------------------------------*
      |                            METADATA                            |
      *----------------------------------------------------------------*/
-
-    address private _owner;
 
     string private _name;
 
@@ -48,59 +46,21 @@ contract ERC721 {
         return _symbol;
     }
 
-    string private _uri;
-
-    function baseURI() public view returns (string memory) {
-        return _uri;
-    }
-
-    function tokenURI(uint256 tokenId) public view returns (string memory) {
-        if (_ownerOf[tokenId] == address(0)) revert UNMINTED();
-        return _uri;
-    }
-
-    function contractURI() public view returns (string memory) {
-        return _uri;
-    }
-
-    /*----------------------------------------------------------------*
-     |                   TOKEN ID ISSUER/TRACKER                      |
-     *----------------------------------------------------------------*/
-
-    function _incrementTokenId() internal {
-        unchecked {
-            // Cannot overflow unless _value >= (2^256 - 1), which isn't reasonable.
-            _tokenId++;
-        }
-    }
-
-    uint256 internal _tokenId;
-
-    /*----------------------------------------------------------------*
-     |                           MODIFIERS                            |
-     *----------------------------------------------------------------*/
-    modifier onlyOwner() {
-        if (msg.sender != _owner) {
-            revert UNAUTHORIZED();
-        }
-        _;
-    }
+    function tokenURI(uint256 tokenId) public view virtual returns (string memory);
 
     /*----------------------------------------------------------------*
      |                          CONSTRUCTOR                           |
      *----------------------------------------------------------------*/
 
-    constructor(address owner_, string memory name_, string memory symbol_, string memory uri_) {
-        _owner = owner_;
+    constructor(string memory name_, string memory symbol_) {
         _name = name_;
         _symbol = symbol_;
-        _uri = uri_;
     }
     /*----------------------------------------------------------------*
      |                            BALANCE                             |
      *----------------------------------------------------------------*/
 
-    mapping(address => uint256) private _balanceOf;
+    mapping(address => uint256) internal _balanceOf;
 
     /// @notice Count all NFTs assigned to address `owner`
     /// @dev Zero Address NFTs are invalid and revert.
@@ -115,7 +75,7 @@ contract ERC721 {
      |                           OWNERSHIP                            |
      *----------------------------------------------------------------*/
 
-    mapping(uint256 => address) private _ownerOf;
+    mapping(uint256 => address) internal _ownerOf;
 
     /// @notice Find the owner of an NFT by the `tokenId`
     /// @dev Zero address indicates the NFT is not minted, and hence, reverts.
@@ -179,8 +139,65 @@ contract ERC721 {
     }
 
     /*----------------------------------------------------------------*
+     |                          MINT LOGIC                            |
+     *----------------------------------------------------------------*/
+
+    /// @dev Reverts if even one of the following condition fails,
+    ///  1. `to` address should not be zero address.
+    ///  2. `tokenId` should not be minted.
+    ///
+    /// @param to The minting address
+    /// @param tokenId The NFT to transfer
+    function _mint(address to, uint256 tokenId) internal {
+        if (to == address(0)) {
+            revert ZERO_ADDRESS();
+        }
+
+        if (_ownerOf[tokenId] != address(0)) {
+            revert ALREADY_MINTED();
+        }
+
+        // Counter overflow is incredibly unrealistic.
+        unchecked {
+            _balanceOf[to]++;
+        }
+
+        _ownerOf[tokenId] = to;
+        emit Transfer(address(0), to, tokenId);
+    }
+
+    /// @dev Calls the internal `_mint` function.
+    ///  When transfer is complete, this function checks if `_to` is a smart contract (code size > 0).
+    ///  If so, it calls `onERC721Received` on `_to` and throws if the return value is not
+    ///  `bytes4(keccak256("onERC721Received(address,address,uint256,bytes)"))`.
+    /// @param to The minting address
+    /// @param tokenId The NFT to transfer
+    function _safeMint(address to, uint256 tokenId) internal {
+        _safeMint(to, tokenId, "");
+    }
+
+    /// @dev Same as other `_safeMint` function with an extra data parameter.
+    /// @param to The minting address
+    /// @param tokenId The NFT to transfer
+    function _safeMint(address to, uint256 tokenId, bytes memory data) internal {
+        _mint(to, tokenId);
+        _checkOnERC721Received(address(0), to, tokenId, data);
+    }
+
+    /*----------------------------------------------------------------*
      |                        TRANSFER LOGIC                          |
      *----------------------------------------------------------------*/
+
+    /// @notice Transfers the ownership of an NFT from one address to another address
+    /// @dev This works identically to the other function with an extra data parameter,
+    ///  except this function just sets data to "".
+    /// @param from The current owner of the NFT
+    /// @param to The new owner
+    /// @param tokenId The NFT to transfer
+    function _safeTransferFrom(address from, address to, uint256 tokenId) internal {
+        _safeTransferFrom(from, to, tokenId, "");
+    }
+
     /// @notice Transfers the ownership of an NFT from one address to another address
     /// @dev
     ///  Requirement:
@@ -196,32 +213,9 @@ contract ERC721 {
     /// @param to The new owner
     /// @param tokenId The NFT to transfer
     /// @param data Additional data with no specified format, sent in call to `_to`
-    function safeTransferFrom(address from, address to, uint256 tokenId, bytes calldata data) external payable {
-        transferFrom(from, to, tokenId);
-        if (
-            to.code.length != 0
-                && ERC721TokenReceiver(to).onERC721Received(msg.sender, from, tokenId, data)
-                    != ERC721TokenReceiver.onERC721Received.selector
-        ) {
-            revert UNSAFE_RECIPIENT();
-        }
-    }
-
-    /// @notice Transfers the ownership of an NFT from one address to another address
-    /// @dev This works identically to the other function with an extra data parameter,
-    ///  except this function just sets data to "".
-    /// @param from The current owner of the NFT
-    /// @param to The new owner
-    /// @param tokenId The NFT to transfer
-    function safeTransferFrom(address from, address to, uint256 tokenId) external payable {
-        transferFrom(from, to, tokenId);
-        if (
-            to.code.length != 0
-                && ERC721TokenReceiver(to).onERC721Received(msg.sender, from, tokenId, "")
-                    != ERC721TokenReceiver.onERC721Received.selector
-        ) {
-            revert UNSAFE_RECIPIENT();
-        }
+    function _safeTransferFrom(address from, address to, uint256 tokenId, bytes memory data) internal {
+        _transferFrom(from, to, tokenId);
+        _checkOnERC721Received(from, to, tokenId, data);
     }
 
     /// @notice Transfer ownership of an NFT
@@ -241,7 +235,7 @@ contract ERC721 {
     /// @param from The current owner of the NFT
     /// @param to The new owner
     /// @param tokenId The NFT to transfer
-    function transferFrom(address from, address to, uint256 tokenId) internal {
+    function _transferFrom(address from, address to, uint256 tokenId) internal {
         if (_ownerOf[tokenId] == address(0)) {
             revert UNMINTED();
         }
@@ -278,94 +272,20 @@ contract ERC721 {
     }
 
     /*----------------------------------------------------------------*
-     |                          MINT LOGIC                            |
+     |                     RECIPIENT CHECK LOGIC                       |
      *----------------------------------------------------------------*/
 
-    /// @dev Reverts if even one of the following condition fails,
-    ///  1. `to` address should not be zero address.
-    ///  2. `tokenId` should not be minted.
-    ///
-    /// @param to The minting address
-    /// @param tokenId The NFT to transfer
-    function _mint(address to, uint256 tokenId) internal {
-        if (to == address(0)) {
-            revert ZERO_ADDRESS();
-        }
-
-        if (_ownerOf[tokenId] != address(0)) {
-            revert ALREADY_MINTED();
-        }
-
-        // Counter overflow is incredibly unrealistic.
-        unchecked {
-            _balanceOf[to]++;
-        }
-
-        _ownerOf[tokenId] = to;
-        emit Transfer(address(0), to, tokenId);
-    }
-
-    /// @dev Calls the internal `_mint` function.
-    ///  When transfer is complete, this function checks if `_to` is a smart contract (code size > 0).
-    ///  If so, it calls `onERC721Received` on `_to` and throws if the return value is not
-    ///  `bytes4(keccak256("onERC721Received(address,address,uint256,bytes)"))`.
-    /// @param to The minting address
-    /// @param tokenId The NFT to transfer
-    function _safeMint(address to, uint256 tokenId) internal {
-        _mint(to, tokenId);
+    function _checkOnERC721Received(address from, address to, uint256 tokenId, bytes memory data) private {
         if (
             to.code.length != 0
-                && ERC721TokenReceiver(to).onERC721Received(msg.sender, address(0), tokenId, "")
+                && ERC721TokenReceiver(to).onERC721Received(msg.sender, from, tokenId, data)
                     != ERC721TokenReceiver.onERC721Received.selector
         ) {
             revert UNSAFE_RECIPIENT();
         }
-    }
-
-    /// @dev Same as other `_safeMint` function with an extra data parameter.
-    /// @param to The minting address
-    /// @param tokenId The NFT to transfer
-    function _safeMint(address to, uint256 tokenId, bytes memory data) internal {
-        _mint(to, tokenId);
-        if (
-            to.code.length != 0
-                && ERC721TokenReceiver(to).onERC721Received(msg.sender, address(0), tokenId, data)
-                    != ERC721TokenReceiver.onERC721Received.selector
-        ) {
-            revert UNSAFE_RECIPIENT();
-        }
-    }
-
-    /*----------------------------------------------------------------*
-     |                        WITHDRAW LOGIC                          |
-     *----------------------------------------------------------------*/
-
-    /// @notice Withdraw the proceeds from contract.
-    function withdraw() external onlyOwner {
-        uint256 amount = address(this).balance;
-        (bool success,) = _owner.call{value: amount}("");
-        if (!success) {
-            revert WITHDRAW_FAILED();
-        }
-        emit Withdraw(amount);
-    }
-
-    /*----------------------------------------------------------------*
-     |                         UPDATE LOGIC                           |
-     *----------------------------------------------------------------*/
-
-    /// @notice Update metadata of the contract
-    /// @dev Lets the owner of the contract update the metadata update the URI of the NFT,
-    ///  will be removed in a future version.
-    function updateURI(string calldata uri) external onlyOwner {
-        _uri = uri;
     }
 }
 
-/// @notice A generic interface for a contract which properly accepts ERC721 tokens.
-/// @author Solmate (https://github.com/transmissions11/solmate/blob/main/src/tokens/ERC721.sol)
-abstract contract ERC721TokenReceiver {
-    function onERC721Received(address, address, uint256, bytes calldata) external virtual returns (bytes4) {
-        return ERC721TokenReceiver.onERC721Received.selector;
-    }
+interface ERC721TokenReceiver {
+    function onERC721Received(address, address, uint256, bytes calldata) external returns (bytes4);
 }

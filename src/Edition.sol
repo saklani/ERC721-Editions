@@ -10,10 +10,25 @@ contract Edition is ERC721 {
 
     event PriceChange(uint256 amount);
     event Mint(address indexed to, uint256 indexed tokenId);
+    event Withdraw(uint256 amount);
+
+    /*----------------------------------------------------------------*
+     |                             ERRORS                             |
+     *----------------------------------------------------------------*/
+
+    error WITHDRAW_FAILED();
 
     /*----------------------------------------------------------------*
      |                            METADATA                            |
      *----------------------------------------------------------------*/
+
+    address private _owner;
+
+    // the current owner of the contract
+    function owner() public view returns (address) {
+        return _owner;
+    }
+
     // the current mint price for this edition
     uint256 private _mintPrice;
 
@@ -28,6 +43,34 @@ contract Edition is ERC721 {
         return _mintLimit;
     }
 
+    string private _uri;
+
+    function baseURI() public view returns (string memory) {
+        return _uri;
+    }
+
+    function tokenURI(uint256 tokenId) public view override returns (string memory) {
+        if (_ownerOf[tokenId] == address(0)) revert UNMINTED();
+        return _uri;
+    }
+
+    function contractURI() public view returns (string memory) {
+        return _uri;
+    }
+
+    /*----------------------------------------------------------------*
+     |                   TOKEN ID ISSUER/TRACKER                      |
+     *----------------------------------------------------------------*/
+
+    function _incrementTokenId() internal {
+        unchecked {
+            // Cannot overflow unless _value >= (2^256 - 1), which isn't reasonable.
+            _tokenId++;
+        }
+    }
+
+    uint256 internal _tokenId;
+
     /*----------------------------------------------------------------*
      |                          CONSTRUCTOR                           |
      *----------------------------------------------------------------*/
@@ -39,9 +82,21 @@ contract Edition is ERC721 {
         string memory uri_,
         uint256 mintPrice_,
         uint256 mintLimit_
-    ) ERC721(owner_, name_, symbol_, uri_) {
+    ) ERC721(name_, symbol_) {
+        _owner = owner_;
         _mintPrice = mintPrice_;
         _mintLimit = mintLimit_;
+        _uri = uri_;
+    }
+
+    /*----------------------------------------------------------------*
+     |                           MODIFIERS                            |
+     *----------------------------------------------------------------*/
+    modifier onlyOwner() {
+        if (msg.sender != _owner) {
+            revert UNAUTHORIZED();
+        }
+        _;
     }
 
     /*----------------------------------------------------------------*
@@ -73,5 +128,30 @@ contract Edition is ERC721 {
     function updateMintPrice(uint256 newPrice) external onlyOwner {
         _mintPrice = newPrice;
         emit PriceChange(newPrice);
+    }
+
+    /*----------------------------------------------------------------*
+     |                        WITHDRAW LOGIC                          |
+     *----------------------------------------------------------------*/
+
+    /// @notice Withdraw the proceeds from contract.
+    function withdraw() external onlyOwner {
+        uint256 amount = address(this).balance;
+        (bool success,) = _owner.call{value: amount}("");
+        if (!success) {
+            revert WITHDRAW_FAILED();
+        }
+        emit Withdraw(amount);
+    }
+
+    /*----------------------------------------------------------------*
+     |                         UPDATE LOGIC                           |
+     *----------------------------------------------------------------*/
+
+    /// @notice Update metadata of the contract
+    /// @dev Lets the owner of the contract update the metadata update the URI of the NFT,
+    ///  will be removed in a future version.
+    function updateURI(string calldata uri) external onlyOwner {
+        _uri = uri;
     }
 }
